@@ -1,0 +1,35 @@
+name = "llmasaserver"
+pages_build_output_dir = "public"
+compatibility_date = "2026-08-22"
+
+[vars]
+# Not a secret. Free-tier rate limits are per-account, not per-model — every
+# model on this key shares the same 1000 requests / 8000 tokens-per-minute
+# budget — so the larger model costs nothing in availability.
+GROQ_MODEL = "openai/gpt-oss-120b"
+# OpenRouter's auto-router across its free model pool. Only free ids are
+# accepted; the client refuses to construct with a paid model.
+OPENROUTER_MODEL = "openrouter/free"
+# Priority order. Groq allows 1000 requests/day but only 8000 tokens/minute;
+# OpenRouter allows 20 requests/minute but far fewer per day. Groq leads and
+# OpenRouter absorbs the bursts that would otherwise be 429s.
+GEMINI_MODEL = "gemini-3.1-flash-lite"
+# Priority order, measured rather than assumed. Groq produces the best pages but
+# allows only ~8000 tokens/minute and queues rather than refusing once that is
+# spent. Gemini is the failover: it satisfies the same contract reliably at much
+# higher throughput. OpenRouter's free pool is last because it frequently fails
+# the contract outright (truncated JSON, next_state emitted as an object).
+LLM_PROVIDERS = "groq,gemini,openrouter"
+
+# Opaque per-session JSON state + generic runtime metadata.
+# This binding knows nothing about the website's application concepts.
+[[d1_databases]]
+binding = "STATE_DB"
+database_name = "llm_as_a_server_state"
+database_id = "4b7bc8d7-b55d-4b1e-a344-472af8282692"
+
+# Exceptional per-session virtual filesystem. Private bucket, server-side only.
+# The ordinary request path never touches this binding.
+[[r2_buckets]]
+binding = "VFS_BUCKET"
+bucket_name = "llm-as-a-server-vfs"

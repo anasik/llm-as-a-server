@@ -1,0 +1,35 @@
+{
+  "name": "llm-as-a-server",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Proof of concept: a language model is the entire application-semantic layer of a website.",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "constitution": "node scripts/build-constitution.mjs",
+    "predev": "node scripts/build-constitution.mjs && npm run migrate:local",
+    "dev": "wrangler pages dev --port 8788 --persist-to .wrangler/state --ip 127.0.0.1",
+    "migrate:local": "wrangler d1 execute llm_as_a_server_state --local --persist-to .wrangler/state --file=./migrations/0001_runtime.sql -y",
+    "test": "node scripts/local-check.mjs",
+    "smoke": "node scripts/smoke.mjs",
+    "live": "node scripts/live-check.mjs",
+    "live:files": "ONLY=exceptional node scripts/live-check.mjs",
+    "typecheck": "tsc --noEmit",
+    "limits": "node scripts/model-limits.mjs",
+    "budget": "node scripts/prompt-budget.mjs",
+    "burst": "node scripts/burst-check.mjs",
+    "contract": "node scripts/probe-contract.mjs",
+    "models:openrouter": "node scripts/probe-openrouter.mjs",
+    "test:ci": "node scripts/build-constitution.mjs && vitest run"
+  },
+  "devDependencies": {
+    "@cloudflare/vitest-pool-workers": "^0.22.0",
+    "@cloudflare/workers-types": "^4.0.0",
+    "@types/node": "^22.0.0",
+    "typescript": "^5.0.0",
+    "vitest": "^4.1.0",
+    "wrangler": "^4.0.0"
+  }
+}
