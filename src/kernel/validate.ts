@@ -113,7 +113,7 @@ function validateResponse(input: unknown, failures: string[]) {
       return null;
     }
     if (!RESPONSE_HEADER_ALLOWLIST.has(lower)) {
-      failures.push("response.header_not_allowlisted");
+      failures.push(`response.header_not_allowlisted(${lower.slice(0, 40)})`);
       return null;
     }
     if (HEADER_VALUE_UNSAFE.test(value) || value.length > LIMITS.responseHeaderValueChars) {

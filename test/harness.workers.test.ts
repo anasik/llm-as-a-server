@@ -46,14 +46,31 @@ describe("health", () => {
     }
   });
 
-  it("says which providers are configured, by name only", async () => {
+  it("says which providers are configured, by name and model only", async () => {
     const body = (await (await handleHarnessHealth(countingEnv())).json()) as {
-      providers: { name: string; configured: boolean }[];
+      providers: { name: string; model: string | null; configured: boolean }[];
     };
     expect(body.providers.map((p) => p.name)).toContain("groq");
     for (const provider of body.providers) {
-      expect(Object.keys(provider).sort()).toEqual(["configured", "name"]);
+      // Names and model ids are public facts; nothing else about a provider
+      // belongs in a health response.
+      expect(Object.keys(provider).sort()).toEqual(["configured", "model", "name"]);
     }
+  });
+
+  it("lists one entry per model when a provider is chained across several", async () => {
+    const chained = countingEnv({
+      LLM_PROVIDERS: "groq:openai/gpt-oss-120b,groq:openai/gpt-oss-20b,gemini",
+    });
+    const body = (await (await handleHarnessHealth(chained)).json()) as {
+      providers: { name: string; model: string | null }[];
+    };
+    expect(body.providers).toHaveLength(3);
+    expect(body.providers.filter((p) => p.name === "groq").map((p) => p.model)).toEqual([
+      "openai/gpt-oss-120b",
+      "openai/gpt-oss-20b",
+    ]);
+    expect(body.providers[2]).toMatchObject({ name: "gemini", model: null });
   });
 
   it("admits when the state store is unreachable instead of claiming health", async () => {

@@ -143,6 +143,28 @@ describe("ordinary request lifecycle", () => {
     expect(await storedStateJson(sessionIdFromCookie(cookie))).toBe(before);
   });
 
+  it("retries rejected output on a different model before giving up", async () => {
+    const testEnv = countingEnv();
+    // The first model emits a header the runtime refuses; the second is fine.
+    const chain = mockGroq([
+      final({ headers: [{ name: "x-invented", value: "1" }] }),
+      final({ body: page("<h1>Second model</h1>"), state: { saved: true } }),
+    ]);
+
+    const result = await readSite(
+      await handleSimulatedRequest(siteRequest({ path: "/" }), testEnv, { inference: chain }),
+    );
+
+    expect(result.status).toBe(200);
+    expect(result.body).toContain("Second model");
+    expect(chain.callCount).toBe(2);
+    expect(result.telemetry.inferences).toBe(2);
+    // The first failure is still reported, so a systematic contract problem
+    // stays visible instead of being hidden by the retry.
+    expect(result.telemetry.validation.join(",")).toContain("header_not_allowlisted");
+    expect(result.telemetry.persisted).toBe("ok");
+  });
+
   it("decodes an ordinary form submission into fields without attaching meaning", async () => {
     const groq = mockGroq([final({ state: {} })]);
     await handleSimulatedRequest(

@@ -53,7 +53,12 @@ export const LIMITS = {
   // queues rather than refusing when its token budget is spent, so without this
   // a burst stalls instead of routing around the exhausted provider.
   providerTimeoutMs: 20_000,
-  maxCompletionTokens: 8000,
+  // Providers reserve prompt + this value against the per-minute ceiling, so a
+  // cap larger than the budget gets the request refused as "too large" before
+  // a single token is generated. The prefix is ~3,600 tokens and the longest
+  // page observed was ~2,400, so this leaves room for both and for a second
+  // request in the same window.
+  maxCompletionTokens: 3000,
 } as const;
 
 // Response headers the model is allowed to set. Anything else fails the

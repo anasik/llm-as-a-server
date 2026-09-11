@@ -23,14 +23,21 @@ export interface InferenceResult {
   latencyMs: number;
   provider: string;
   model: string;
+  /** Identifies the chain entry that answered, so a caller can ask for a different one. */
+  key: string;
   /** How many providers were tried, including the one that answered. */
   attempts: number;
+}
+
+export interface InferOptions {
+  /** Chain entries to skip, used to retry output that failed validation. */
+  exclude?: ReadonlySet<string>;
 }
 
 export interface InferenceClient {
   /** Label used for telemetry before any call has been made. */
   readonly model: string;
-  infer(messages: ChatMessage[]): Promise<InferenceResult>;
+  infer(messages: ChatMessage[], options?: InferOptions): Promise<InferenceResult>;
 }
 
 export class ProviderError extends Error {
@@ -160,6 +167,7 @@ function createOpenAiCompatibleClient(config: OpenAiCompatibleConfig): Inference
         provider: config.name,
         // An auto-router may report which model it actually chose.
         model: payload.model ?? config.model,
+        key: `${config.name}:${config.model}`,
         attempts: 1,
         usage: {
           prompt: payload.usage?.prompt_tokens ?? 0,
@@ -274,8 +282,20 @@ const FAILURE_COOLDOWN_MS = 30_000;
  * usually has the larger daily allowance, the secondary the larger per-minute
  * allowance, so bursts land on the one that can absorb them.
  */
+/**
+ * One link in the failover chain. `name` is what telemetry reports; `key` is
+ * what cooldowns are recorded against, and is unique per model. The two differ
+ * because rate-limit buckets are per-model: exhausting one Groq model must not
+ * make the router skip a sibling that still has its full allowance.
+ */
+export interface ProviderEntry {
+  name: string;
+  key: string;
+  client: InferenceClient;
+}
+
 export function createRoutingClient(
-  providers: { name: string; client: InferenceClient }[],
+  providers: ProviderEntry[],
   cooldowns: CooldownStore,
   now: () => number = () => Date.now(),
 ): InferenceClient {
@@ -283,12 +303,18 @@ export function createRoutingClient(
 
   return {
     model: providers.map((provider) => provider.client.model).join(" | "),
-    async infer(messages) {
+    async infer(messages, options) {
+      const excluded = options?.exclude;
+      const usable = excluded ? providers.filter((provider) => !excluded.has(provider.key)) : providers;
+      if (usable.length === 0) {
+        throw new ProviderError("every provider has already been tried", "provider_error", null);
+      }
+
       const cooling = await cooldowns.active(now());
-      const eligible = providers.filter((provider) => !cooling.has(provider.name));
+      const eligible = usable.filter((provider) => !cooling.has(provider.key));
       // If everything is cooling, try anyway rather than refusing outright: a
       // cooldown is an estimate, not a fact.
-      const order = eligible.length > 0 ? eligible : providers;
+      const order = eligible.length > 0 ? eligible : usable;
 
       let attempts = 0;
       let lastError: unknown;
@@ -297,7 +323,7 @@ export function createRoutingClient(
         attempts++;
         try {
           const result = await provider.client.infer(messages);
-          return { ...result, attempts };
+          return { ...result, key: provider.key, attempts };
         } catch (error) {
           lastError = error;
           if (error instanceof ProviderError) {
@@ -305,7 +331,7 @@ export function createRoutingClient(
               error.code === "provider_rate_limited"
                 ? Math.max(RATE_LIMIT_COOLDOWN_MS, (error.retryAfterSeconds ?? 0) * 1000)
                 : FAILURE_COOLDOWN_MS;
-            await cooldowns.cool(provider.name, now() + cooldown);
+            await cooldowns.cool(provider.key, now() + cooldown);
             continue;
           }
           throw error;
@@ -325,28 +351,47 @@ export function createRoutingClient(
 }
 
 /**
+ * Parses one LLM_PROVIDERS entry. An entry is `provider` or `provider:model`,
+ * and the model may itself contain colons and slashes, so only the first colon
+ * separates the two.
+ */
+function parseEntry(raw: string): { name: string; model: string | null } {
+  const separator = raw.indexOf(":");
+  if (separator < 0) return { name: raw.trim().toLowerCase(), model: null };
+  return {
+    name: raw.slice(0, separator).trim().toLowerCase(),
+    model: raw.slice(separator + 1).trim() || null,
+  };
+}
+
+/**
  * Builds the routing client from configuration. A provider with no key is
- * simply absent; order comes from LLM_PROVIDERS, defaulting to Groq first
- * (1,000 requests/day) with OpenRouter absorbing per-minute bursts.
+ * simply absent, and order comes from LLM_PROVIDERS.
+ *
+ * The same provider may appear more than once with different models, which is
+ * worth doing: rate-limit buckets are per-model, so a sibling model is a whole
+ * extra allowance rather than a share of the same one. Measured on Groq — one
+ * model returning 429 while the next reported its budget untouched.
  */
 export function createConfiguredClient(env: KernelEnv, cooldowns: CooldownStore): InferenceClient {
-  const order = (env.LLM_PROVIDERS ?? "groq,gemini,openrouter")
-    .split(",")
-    .map((name) => name.trim().toLowerCase())
-    .filter(Boolean);
+  const order = (env.LLM_PROVIDERS ?? "groq,gemini,openrouter").split(",").map(parseEntry).filter((e) => e.name);
 
-  const available: { name: string; client: InferenceClient }[] = [];
-  for (const name of order) {
+  const available: ProviderEntry[] = [];
+  for (const { name, model } of order) {
     if (name === "groq" && env.GROQ_API_KEY) {
-      available.push({ name, client: createGroqClient(env.GROQ_API_KEY, env.GROQ_MODEL ?? DEFAULT_GROQ_MODEL) });
+      const chosen = model ?? env.GROQ_MODEL ?? DEFAULT_GROQ_MODEL;
+      available.push({ name, key: `groq:${chosen}`, client: createGroqClient(env.GROQ_API_KEY, chosen) });
     }
     if (name === "gemini" && env.GEMINI_API_KEY) {
-      available.push({ name, client: createGeminiClient(env.GEMINI_API_KEY, env.GEMINI_MODEL ?? DEFAULT_GEMINI_MODEL) });
+      const chosen = model ?? env.GEMINI_MODEL ?? DEFAULT_GEMINI_MODEL;
+      available.push({ name, key: `gemini:${chosen}`, client: createGeminiClient(env.GEMINI_API_KEY, chosen) });
     }
     if (name === "openrouter" && env.OPENROUTER_API_KEY) {
+      const chosen = model ?? env.OPENROUTER_MODEL ?? DEFAULT_OPENROUTER_MODEL;
       available.push({
         name,
-        client: createOpenRouterClient(env.OPENROUTER_API_KEY, env.OPENROUTER_MODEL ?? DEFAULT_OPENROUTER_MODEL),
+        key: `openrouter:${chosen}`,
+        client: createOpenRouterClient(env.OPENROUTER_API_KEY, chosen),
       });
     }
   }

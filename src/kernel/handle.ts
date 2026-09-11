@@ -282,9 +282,35 @@ export async function handleSimulatedRequest(
   addUsage(telemetry.tokens, first.usage);
 
   let validated = validateModelOutput(first.text, { allowFilesystemRequest: true });
+
+  // A rejected transition is not a transport failure, so the router has already
+  // returned successfully and would otherwise never be consulted again. Since
+  // rate-limit buckets are per-model, the chain usually has another model with
+  // its own budget sitting idle — and a different model rarely makes the same
+  // mistake. One retry, then the visitor gets the error honestly.
   if (!validated.ok) {
     telemetry.validation_failures.push(...validated.failures);
-    return fail("invalid_model_output");
+    let retried;
+    try {
+      retried = await inference.infer(buildTransitionMessages(session.stateJson, simulatedRequest), {
+        exclude: new Set([first.key]),
+      });
+    } catch {
+      return fail("invalid_model_output");
+    }
+    telemetry.inferences = 2;
+    telemetry.provider_latency_ms += retried.latencyMs;
+    telemetry.provider = retried.provider;
+    telemetry.model = retried.model;
+    telemetry.provider_attempts += retried.attempts;
+    addUsage(telemetry.tokens, retried.usage);
+
+    const second = validateModelOutput(retried.text, { allowFilesystemRequest: true });
+    if (!second.ok) {
+      telemetry.validation_failures.push(...second.failures);
+      return fail("invalid_model_output");
+    }
+    validated = second;
   }
 
   // ---- exceptional filesystem read round trip --------------------------
@@ -459,15 +485,20 @@ export async function handleHarnessHealth(env: KernelEnv, deps: KernelDeps = {})
       ok: stateOk && (groqConfigured || geminiConfigured || openrouterConfigured),
       providers: (env.LLM_PROVIDERS ?? "groq,gemini,openrouter")
         .split(",")
-        .map((name) => name.trim().toLowerCase())
+        .map((entry) => entry.trim())
         .filter(Boolean)
-        .map((name) => ({
+        .map((entry) => {
+          const separator = entry.indexOf(":");
+          const name = (separator < 0 ? entry : entry.slice(0, separator)).toLowerCase();
+          return {
           name,
+          model: separator < 0 ? null : entry.slice(separator + 1),
           configured:
             (name === "groq" && Boolean(env.GROQ_API_KEY)) ||
             (name === "gemini" && Boolean(env.GEMINI_API_KEY)) ||
             (name === "openrouter" && Boolean(env.OPENROUTER_API_KEY)),
-        })),
+          };
+        }),
       model: env.GROQ_MODEL ?? DEFAULT_GROQ_MODEL,
       state_store: stateOk ? "ok" : "unavailable",
       provider_secret: groqConfigured || geminiConfigured || openrouterConfigured ? "configured" : "missing",
