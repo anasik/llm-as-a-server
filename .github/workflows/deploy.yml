@@ -34,7 +34,7 @@ jobs:
       - name: tests, sanitizer and architecture audit
         run: npm run test:ci
 
-      # The compiled constitution must match SERVER.md, or the deployed site
+      # The compiled prefix must match CONTRACT.md and SITE.md, or the deployed site
       # would run on a different contract than the repo describes.
       - name: constitution is in sync
         run: |

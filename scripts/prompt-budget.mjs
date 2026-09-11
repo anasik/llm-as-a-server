@@ -7,7 +7,7 @@ import { dirname, join } from "node:path";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const key = readFileSync(join(ROOT, ".dev.vars"), "utf8").match(/^GROQ_API_KEY=(.+)$/m)?.[1]?.trim();
-const source = readFileSync(join(ROOT, "SERVER.md"), "utf8");
+const source = [readFileSync(join(ROOT, "CONTRACT.md"), "utf8"), readFileSync(join(ROOT, "SITE.md"), "utf8")].join("\n\n");
 
 const schemaSource = readFileSync(join(ROOT, "src/kernel/schema.ts"), "utf8");
 const start = schemaSource.indexOf("export const OUTPUT_SCHEMA = {") + "export const OUTPUT_SCHEMA = ".length;

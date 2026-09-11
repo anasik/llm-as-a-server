@@ -26,7 +26,7 @@ function endpointFor(model) {
     extra: { provider: { require_parameters: true } },
   };
 }
-const constitution = readFileSync(join(ROOT, "SERVER.md"), "utf8");
+const constitution = [readFileSync(join(ROOT, "CONTRACT.md"), "utf8"), readFileSync(join(ROOT, "SITE.md"), "utf8")].join("\n\n");
 
 // Load the real schema out of the TypeScript source.
 const schemaSource = readFileSync(join(ROOT, "src/kernel/schema.ts"), "utf8");

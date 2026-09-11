@@ -1,10 +1,11 @@
 // Prompt construction.
 //
-// Message order is chosen for automatic prompt caching, which keys on an exact
-// shared prefix: the constitution and the output contract are byte-stable and
-// come first; the per-request state, the request itself and any bounded
-// filesystem results come last.
-import { CONSTITUTION } from "./constitution.generated";
+// The prefix has three parts in a fixed order: the runtime contract (identical
+// in every deployment), the site definition (whatever this deployment is), and
+// the enforced output schema. Message order is chosen for automatic prompt
+// caching, which keys on an exact shared prefix: all three are byte-stable, so
+// only the per-request state, request and any bounded filesystem results vary.
+import { CONTRACT, SITE } from "./constitution.generated";
 import { OUTPUT_SCHEMA } from "./schema";
 import type { NormalizedRequest } from "./types";
 
@@ -13,20 +14,21 @@ export interface ChatMessage {
   content: string;
 }
 
-// Stable prefix. Byte-identical on every request, so a provider can cache it.
-const CONTRACT = [
+const SCHEMA_BLOCK = [
   "OUTPUT CONTRACT (enforced by the runtime; violations are rejected and nothing is persisted):",
   JSON.stringify(OUTPUT_SCHEMA.schema),
   "Return exactly one JSON object matching this schema. No prose, no code fences.",
 ].join("\n");
 
-// One system message, not two. Some OpenAI-compatible surfaces (Gemini's among
-// them) keep only a single system message and silently drop the rest, which
-// would hand the model the schema without the constitution — schema-valid
-// output with no idea what the site is. Merging is byte-stable, so prompt
+// One system message, not several. Some OpenAI-compatible surfaces (Gemini's
+// among them) keep only a single system message and silently drop the rest,
+// which would hand the model the schema without the contract — schema-valid
+// output with no idea what the site is. Concatenating is byte-stable, so prompt
 // caching is unaffected.
+const PREFIX = `${CONTRACT}\n\n${SITE}\n\n${SCHEMA_BLOCK}`;
+
 function stablePrefix(): ChatMessage[] {
-  return [{ role: "system", content: `${CONSTITUTION}\n\n${CONTRACT}` }];
+  return [{ role: "system", content: PREFIX }];
 }
 
 export function buildTransitionMessages(stateJson: string, request: NormalizedRequest): ChatMessage[] {

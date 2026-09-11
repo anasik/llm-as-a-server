@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import { handleSimulatedRequest } from "../src/kernel/handle";
 import { LIMITS } from "../src/kernel/limits";
 import { ProviderError } from "../src/kernel/providers";
+import { OUTPUT_SCHEMA } from "../src/kernel/schema";
 import {
   countingEnv,
   failingGroq,
@@ -376,10 +377,9 @@ describe("generic validation boundary", () => {
       "HTTP_REQUEST:",
     ]);
 
-    // Assert the property, not the wording: the constitution must say the
-    // capability exists, must stay unused, and carries no data with it.
-    expect(prompt).toContain("must remain unused");
-    expect(prompt).toMatch(/no (file )?listing, no manifest/i);
+    // No assertion on the contract's wording: a deployment may phrase its
+    // storage discipline however it likes. What must hold is that the prompt
+    // carries no storage data — asserted above from the payload itself.
   });
 
   it("prompt ordering keeps the cacheable prefix first and per-request data last", async () => {
@@ -388,14 +388,16 @@ describe("generic validation boundary", () => {
     const messages = groq.prompts[0]!;
 
     // A single system message: providers that keep only one must still receive
-    // the constitution, not just the schema.
+    // the whole prefix, not just the schema.
     expect(messages).toHaveLength(2);
     expect(messages[0]!.role).toBe("system");
-    expect(messages[0]!.content).toContain("constitution of a simulated HTTP server");
+    // The prefix ends with the schema the runtime enforces, so the contract and
+    // site text — whatever they say — precede it.
     expect(messages[0]!.content).toContain("OUTPUT CONTRACT");
-    expect(messages[0]!.content.indexOf("constitution of a simulated")).toBeLessThan(
-      messages[0]!.content.indexOf("OUTPUT CONTRACT"),
-    );
+    expect(messages[0]!.content).toContain(JSON.stringify(OUTPUT_SCHEMA.schema));
+    expect(messages[0]!.content.indexOf("OUTPUT CONTRACT")).toBeGreaterThan(0);
+
+    // Per-request data comes last, state before request.
     expect(messages[1]!.role).toBe("user");
     expect(messages[1]!.content.indexOf("CURRENT_STATE")).toBeLessThan(messages[1]!.content.indexOf("HTTP_REQUEST"));
   });
@@ -495,7 +497,7 @@ describe("honest failure reporting", () => {
       }),
     );
 
-    for (const leak of ["groq", "Groq", "gsk_", "SERVER.md", "constitution", "R2", "D1", "next_state", "json_validate_failed"]) {
+    for (const leak of ["groq", "Groq", "gsk_", "CONTRACT.md", "SITE.md", "R2", "D1", "next_state", "json_validate_failed"]) {
       expect(result.body, leak).not.toContain(leak);
     }
   });

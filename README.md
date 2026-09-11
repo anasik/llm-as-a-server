@@ -267,7 +267,8 @@ inside the kernel and never sent to the model or the client.
 ## Layout
 
 ```
-SERVER.md                     the constitution — the only place semantics live
+CONTRACT.md                   the runtime contract — identical in every deployment
+SITE.md                       what this particular site is — replace to build another
 src/kernel/
   handle.ts                   orchestration: session, inference, validate, persist, serve
   sanitize.ts                 HTMLRewriter allowlist for model-authored documents
