@@ -6,7 +6,7 @@ import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
 import { join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
-import { FS_MIME_ALLOWLIST, RESPONSE_HEADER_ALLOWLIST } from "../src/kernel/limits";
+import { RESPONSE_HEADER_ALLOWLIST } from "../src/kernel/limits";
 import { OUTPUT_SCHEMA } from "../src/kernel/schema";
 
 const ROOT = fileURLToPath(new URL("..", import.meta.url));
@@ -232,9 +232,10 @@ describe("the prompt prefix is layered, not tangled", () => {
     for (const key of Object.keys(OUTPUT_SCHEMA.schema.properties)) {
       expect(contract, `contract omits output key ${key}`).toContain(key);
     }
-    for (const mime of FS_MIME_ALLOWLIST) {
-      expect(contract, `contract omits allowlisted type ${mime}`).toContain(mime);
-    }
+    // The storage MIME list is deliberately summarised rather than enumerated:
+    // it applies to a capability used on ~1% of requests, and spelling out all
+    // thirteen types cost more per request than the occasional rejection.
+    expect(contract).toMatch(/content_type/);
   });
 
   it("the contract belongs to no particular site", () => {

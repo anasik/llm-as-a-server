@@ -6,7 +6,6 @@
 // caching, which keys on an exact shared prefix: all three are byte-stable, so
 // only the per-request state, request and any bounded filesystem results vary.
 import { CONTRACT, SITE } from "./constitution.generated";
-import { OUTPUT_SCHEMA } from "./schema";
 import type { NormalizedRequest } from "./types";
 
 export interface ChatMessage {
@@ -14,11 +13,13 @@ export interface ChatMessage {
   content: string;
 }
 
-const SCHEMA_BLOCK = [
-  "OUTPUT CONTRACT (enforced by the runtime; violations are rejected and nothing is persisted):",
-  JSON.stringify(OUTPUT_SCHEMA.schema),
-  "Return exactly one JSON object matching this schema. No prose, no code fences.",
-].join("\n");
+// The schema is already sent as `response_format`, where it drives constrained
+// decoding, so spelling it out here too cost ~390 prompt tokens on every
+// request to say something the grammar was already enforcing. Removed after
+// measuring: pass rates held across models, prompts dropped from 3,067 to
+// 2,677. Providers that ignore `response_format` lean on this line alone.
+const SCHEMA_BLOCK =
+  "Return exactly one JSON object matching the enforced output schema. No prose, no code fences.";
 
 // One system message, not several. Some OpenAI-compatible surfaces (Gemini's
 // among them) keep only a single system message and silently drop the rest,

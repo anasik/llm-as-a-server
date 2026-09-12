@@ -413,11 +413,11 @@ describe("generic validation boundary", () => {
     // the whole prefix, not just the schema.
     expect(messages).toHaveLength(2);
     expect(messages[0]!.role).toBe("system");
-    // The prefix ends with the schema the runtime enforces, so the contract and
-    // site text — whatever they say — precede it.
-    expect(messages[0]!.content).toContain("OUTPUT CONTRACT");
-    expect(messages[0]!.content).toContain(JSON.stringify(OUTPUT_SCHEMA.schema));
-    expect(messages[0]!.content.indexOf("OUTPUT CONTRACT")).toBeGreaterThan(0);
+    // The prefix ends with the instruction to answer as one JSON object. The
+    // schema itself is not repeated here: it is sent as response_format, where
+    // it constrains decoding, and duplicating it cost ~390 tokens per request.
+    expect(messages[0]!.content).toContain("matching the enforced output schema");
+    expect(messages[0]!.content).not.toContain(JSON.stringify(OUTPUT_SCHEMA.schema));
 
     // Per-request data comes last, state before request.
     expect(messages[1]!.role).toBe("user");
